@@ -22,6 +22,8 @@ import Reflex.Dom.Core
 import ECharts as X hiding (ffor)
 
 import Language.Javascript.JSaddle
+--import JSDOM.Types (Element)
+import qualified GHCJS.DOM.Types as GJS 
 
 import Data.Time
 import qualified Data.Some as Some
@@ -51,11 +53,77 @@ data LineChartConfig t k = LineChartConfig
     )
   }
 
+
+data BarChartConfig t k = BarChartConfig
+  { _barChartConfig_size :: (Int,Int)
+  , _barChartConfig_options :: Dynamic t ChartOptions
+  , _barChartConfig_series :: k 
+  }
+
 data Chart t = Chart
   { _chart_rendered :: Event t ()
   , _chart_finished :: Event t ()
   }
 
+data CSSSize = Pixels Int | Percent Int | Vh Int | Other String 
+
+-- TODO: better name
+initChartEvents
+  :: ( PostBuild t m
+     , MonadJSM (Performable m)
+     , PerformEvent t m
+     , TriggerEvent t m
+     , GhcjsDomSpace ~ DomBuilderSpace m
+     )
+  => Element EventResult GhcjsDomSpace t
+  -> m (Event t ECharts, Event t (), Event t ())
+initChartEvents elementHtml = do 
+  p <- getPostBuild
+  (evR, onActionR) <- newTriggerEvent
+  (evF, onActionF) <- newTriggerEvent
+
+  -- Init the chart
+  chartEv <- performEvent $ ffor p $ \_ -> liftJSM $ do
+    chart <- X.initECharts $ _element_raw elementHtml
+    X.onRenderedAction chart (liftIO $ onActionR ())
+    X.onFinishedAction chart (liftIO $ onActionF ())
+    return chart
+
+  pure (chartEv, evR, evF)
+
+--TODO: dont take only px values
+barChart
+  :: ( PostBuild t m
+     , MonadJSM (Performable m)
+     , MonadJSM m
+     , PerformEvent t m
+     , TriggerEvent t m
+     , DomBuilder t m
+     , MonadHold t m 
+     , DomBuilderSpace m ~ GhcjsDomSpace
+     )
+  => BarChartConfig t k
+  -> m (Chart t)
+barChart cfg = do
+  let 
+    optionsDyn = _barChartConfig_options cfg
+    attrs = (_barChartConfig_size cfg) & \(w, h) ->
+      "style" =: ("width" <> tshow w <> "px; height:" <> tshow h <> "px;")
+  barChartEl <- fst <$> elAttr' "div" attrs blank
+  (chartEv, evRendered, evFinished) <- initChartEvents barChartEl
+
+  -- Can probably generalize to set options for chart or whatever
+
+  -- use prerender here?
+  
+  void $ widgetHold blank $ ffor chartEv $ \chart -> do
+    void $ networkView $ ffor optionsDyn $ \opt -> do
+      optVObj <- liftJSM $ makeObject =<< toJSVal opt
+      pure ()
+      
+  
+  pure (Chart evRendered evFinished)
+    
 lineChart
   :: forall t m k .
      ( PostBuild t m
@@ -76,19 +144,10 @@ lineChart c = do
       "style" =: ("width:" <> tshow w <> "px; height:" <> tshow h <> "px;")
   e <- fst <$> elAttr' "div" attr blank
 
-  -- The initialization is done using PostBuild because the element need
+  --The initialization is done using PostBuild because the element need
   -- to be present in the DOM before calling echarts APIs
-  p <- getPostBuild
-  (evR, onActionR) <- newTriggerEvent
-  (evF, onActionF) <- newTriggerEvent
-
-  -- Init the chart
-  chartEv <- performEvent $ ffor p $ \_ -> liftJSM $ do
-    chart <- X.initECharts $ _element_raw e
-    X.onRenderedAction chart (liftIO $ onActionR ())
-    X.onFinishedAction chart (liftIO $ onActionF ())
-    return chart
-
+  (chartEv, evRendered, evFinished) <- initChartEvents e
+  
   void $ widgetHold blank $ ffor chartEv $ \chart -> do
     void $ networkView $ ffor cDyn $ \opt -> do
       -- set first options
@@ -98,27 +157,26 @@ lineChart c = do
       -- and modify it according to the Dynamic values
       -- (series, (series.xAxisIndex, xAxis[i].data))
       -- The (xAxisIndex, xAxis[i].data) are later used to modify the "xAxis" object
-      vs :: [(Object, Event t (Int, JSVal))] <-
-        forM (Map.elems $ _lineChartConfig_series c) $ \(s, dd, xd) -> do
+      seriesJSVals_updEv :: [(Object, Event t (Int, JSVal))] <-
+        forM (Map.elems $ _lineChartConfig_series c) $ \(seriesOpts, dataMap, xAxisData) -> do
           -- series options without the data
-          sVal <- liftJSM (makeObject =<< toJSVal (Some.Some $ SeriesT_Line s))
+          seriesConfig <- liftJSM (makeObject =<< toJSVal (Some.Some $ SeriesT_Line seriesOpts)) -- Some SeriesT
 
           let
-            i = maybe 0 id (s ^. series_xAxisIndex)
-            yx = (,) <$> dd <*> xd
+            i = maybe 0 id (seriesOpts ^. series_xAxisIndex)
 
-          ev <- networkView $ ffor yx $ \(m, xs) -> liftJSM $ do
+          ev <- networkView $ ffor ((,) <$> dataMap <*> xAxisData) $ \(map, xAxisD) -> liftJSM $ do
             -- The ordering of elements is determined by xs
             -- XXX default value of 0 might be wrong here
-            dv <- toJSVal (map (\x -> Map.findWithDefault (DataInt 0) x m) xs)
-            setProp "data" dv sVal
-            toJSVal xs
+            seriesLineData <- toJSVal (fmap (\x -> Map.findWithDefault (DataInt 0) x map) xAxisD :: [Data SeriesLine])
+            setProp "data" seriesLineData seriesConfig
+            toJSVal (xAxisD)
 
-          return (sVal, (,) i <$> ev)
+          return (seriesConfig, (,) i <$> ev)
 
       let
-        updEv = mergeList $ map snd vs
-        seriesJSVals = map fst vs
+        updEv = mergeList $ map snd seriesJSVals_updEv
+        seriesJSVals = map fst seriesJSVals_updEv
 
       performEvent_ $ ffor updEv $ \xs -> liftJSM $ do
         series <- toJSVal seriesJSVals
@@ -137,7 +195,7 @@ lineChart c = do
         setProp "series" series optVObj
         toJSVal optVObj >>= setOptionWithCatch chart
 
-  return (Chart evR evF)
+  return (Chart evRendered evFinished)
 
 data TimeLineChartConfig t k = TimeLineChartConfig
   { _timeLineChartConfig_size :: (Int, Int)

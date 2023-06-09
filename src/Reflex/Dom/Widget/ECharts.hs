@@ -13,6 +13,7 @@ module Reflex.Dom.Widget.ECharts
   , TimeLineChartConfig(..)
   , lineChart
   , timeLineChart
+  , Sizing(..)
   , module X
   )
   where
@@ -39,17 +40,28 @@ import Reflex.Network
 
 type XAxisData = Text
 
+
+data Sizing = Pixel Int | Percent Int | Vh Int | Vw Int
+
+instance Show Sizing where
+  show = \case
+    Pixel pxs -> show pxs <> "px"
+    Percent pct -> show pct <> "%"
+    Vh vh -> show vh <> "vh"
+    Vw vw -> show vw <> "vw"
+
+
 data LineChartConfig t k = LineChartConfig
   -- XXX Can be made a Dynamic
   -- and use this API to adjust size
   -- https://ecomfe.github.io/echarts-doc/public/en/api.html#echartsInstance.resize
-  { _lineChartConfig_size :: (Int, Int)
+  { _lineChartConfig_size :: (Sizing, Sizing)
   -- We will re-create the whole chart if the options change
   , _lineChartConfig_options :: Dynamic t ChartOptions
   , _lineChartConfig_series :: Map k
     ( Series SeriesLine
-    , Dynamic t (Map XAxisData (Data SeriesLine))
-    , Dynamic t [XAxisData]
+    , Dynamic t (Map Text (Data SeriesLine))
+    , Dynamic t [Text]
     )
   }
 
@@ -65,7 +77,7 @@ data Chart t = Chart
   , _chart_finished :: Event t ()
   }
 
-data CSSSize = Pixels Int | Percent Int | Vh Int | Other String 
+
 
 -- TODO: better name
 initChartEvents
@@ -77,7 +89,7 @@ initChartEvents
      )
   => Element EventResult GhcjsDomSpace t
   -> m (Event t ECharts, Event t (), Event t ())
-initChartEvents elementHtml = do 
+initChartEvents elementHtml = do
   p <- getPostBuild
   (evR, onActionR) <- newTriggerEvent
   (evF, onActionF) <- newTriggerEvent
@@ -108,7 +120,8 @@ barChart cfg = do
   let 
     optionsDyn = _barChartConfig_options cfg
     attrs = (_barChartConfig_size cfg) & \(w, h) ->
-      "style" =: ("width" <> tshow w <> "px; height:" <> tshow h <> "px;")
+      "style" =: ("width" <> tshow w <> "; height:" <> tshow h <> ";")
+      -- "style" =: ("width: 100 %; height: 100 %;")
   barChartEl <- fst <$> elAttr' "div" attrs blank
   (chartEv, evRendered, evFinished) <- initChartEvents barChartEl
 
@@ -141,7 +154,8 @@ lineChart c = do
   let
     cDyn = _lineChartConfig_options c
     attr = (_lineChartConfig_size c) & \(w, h) ->
-      "style" =: ("width:" <> tshow w <> "px; height:" <> tshow h <> "px;")
+      "style" =: ("width:" <> tshow w <> "; height:" <> tshow h <> ";")
+      --"style" =: ("width: 50vw; height:30vh;")
   e <- fst <$> elAttr' "div" attr blank
 
   --The initialization is done using PostBuild because the element need

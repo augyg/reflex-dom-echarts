@@ -13,14 +13,20 @@ let
   };
   n = import nix-thunk {};
   hlib = pkgs.haskell.lib ;
+      # echarts-jsdomSrc = pkgs.fetchFromGitHub {
+    #   owner = "augyg";
+    #   repo = "echarts-jsdom";
+    #   rev = "aaffb109ef01a449b36bb6d27be8111bb72ae0dc";
+    #   sha256 = "sha256-o0pYQy6J3L91RNArbcfMaFgLXvGZarugJLVPQpteCMQ=";
+    # };
+
   echarts-jsdom = pkgs.haskellPackages.callCabal2nix "echarts-jsdom" (
     pkgs.fetchFromGitHub {
       owner = "augyg";
       repo = "echarts-jsdom";
-      rev = "3529424f8787b5c06a33050aa5c07dae09129a4b";
-      sha256 = "sha256-cFatgKnm9go/gnkKHiKTruxykwr1swmnZ8ZN5CT2Txo=";
-                
-    }
+      rev = "aaffb109ef01a449b36bb6d27be8111bb72ae0dc";
+      sha256 = "sha256-o0pYQy6J3L91RNArbcfMaFgLXvGZarugJLVPQpteCMQ=";
+    };
     #n.thunkSource ./deps/echarts-jsdom
   ) {};
 

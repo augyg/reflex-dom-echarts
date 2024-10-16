@@ -28,7 +28,7 @@ let
       repo = "echarts-jsdom";
       rev = "aaffb109ef01a449b36bb6d27be8111bb72ae0dc";
       sha256 = "sha256-RHzKD+LBs6DkNlGwd9Xnh8VIbygN6GCEnHmtezbgUHA=";
-    };
+    }
     #n.thunkSource ./deps/echarts-jsdom
   ) {};
 

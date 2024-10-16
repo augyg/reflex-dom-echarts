@@ -55,7 +55,7 @@ data LineChartConfig t k = LineChartConfig
   -- XXX Can be made a Dynamic
   -- and use this API to adjust size
   -- https://ecomfe.github.io/echarts-doc/public/en/api.html#echartsInstance.resize
-  { _lineChartConfig_size :: (Sizing, Sizing)
+  { _lineChartConfig_attrs :: Map Text Text -- (Sizing, Sizing)
   -- We will re-create the whole chart if the options change
   , _lineChartConfig_options :: Dynamic t ChartOptions
   , _lineChartConfig_series :: Map k
@@ -153,10 +153,7 @@ lineChart
 lineChart c = do
   let
     cDyn = _lineChartConfig_options c
-    attr = (_lineChartConfig_size c) & \(w, h) ->
-      "style" =: ("width:" <> tshow w <> "; height:" <> tshow h <> ";")
-      --"style" =: ("width: 50vw; height:30vh;")
-  e <- fst <$> elAttr' "div" attr blank
+  e <- fst <$> elAttr' "div" (_lineChartConfig_attrs c) blank
 
   --The initialization is done using PostBuild because the element need
   -- to be present in the DOM before calling echarts APIs
@@ -307,3 +304,4 @@ setOptionWithCatch c o = setOptionJSVal c o
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+ 
